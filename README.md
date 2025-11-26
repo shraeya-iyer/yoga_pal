@@ -2,6 +2,10 @@
 
 A real-time yoga pose estimation and feedback system using webcam, MediaPipe, and machine learning.
 
+## This is the final project for Northwestern course CS_396: Machine Learning and Sensing.
+
+## By {insert our names here}
+
 ## Features
 
 - **Real-time pose detection** from webcam feed
@@ -15,7 +19,7 @@ A real-time yoga pose estimation and feedback system using webcam, MediaPipe, an
 
 ### 1. Install Dependencies
 
-Make sure you have Python 3.8+ installed, then run:
+Ensure you have Python installed, then run:
 
 ```bash
 pip install -r requirements.txt
@@ -23,9 +27,9 @@ pip install -r requirements.txt
 
 ### 2. Ensure Model File Exists
 
-The script requires `yoga_pose_model.pkl` to be in the same directory. This file should be generated from your notebook's training section.
+The script requires `yoga_pose_model.pkl` to be in the same directory. This file should be generated from the notebook's training section.
 
-If you haven't created it yet, run the model training cells in your notebook (cells 28-29) to generate it.
+If it is not included, run the model training cells in the .ipynb notebook (up to cells 28-29) to generate it.
 
 ### 3. Run the Script
 
