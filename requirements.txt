@@ -6,3 +6,5 @@ joblib
 pandas
 matplotlib
 seaborn
+flask
+pillow

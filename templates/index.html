@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yoga Pal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Yoga Pal</h1>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="info">Information</button>
+            <button class="tab-btn" data-tab="pose">Pose Correction</button>
+        </div>
+
+        <!-- Info / How to Use Tab -->
+        <div id="info-tab" class="tab-content active">
+            <div class="content-section">
+                <h2>Welcome to Yoga Pal!</h2>
+                <p class="created-by">Created by Brendan Tan Fahed, Irina Djuraskovic, Azim Usmanov, and Shraeya Iyer in CS 396: Machine Learning and Sensing at Northwestern University under the guidance of Professor Karan Ahuja</p>
+                <p class="intro">Your personal yoga practice assistant that helps you perfect your pose form in real-time.</p>
+                <p cclass="created-by">Note: This is a proof of concept and is not a substitute for professional yoga instruction.</p>
+            </div>
+
+            <div class="content-section">
+                <h3>How to Use</h3>
+                <ol class="instructions">
+                    <li>Go to the <strong>Pose Correction</strong> tab</li>
+                    <li>Click <strong>Start Camera</strong> and allow camera permissions</li>
+                    <li>Position yourself so your full body is visible in the frame</li>
+                    <li>Hold a yoga pose for 1 second (the buffering period)</li>
+                    <li>You'll receive real-time feedback on your pose form</li>
+                </ol>
+            </div>
+
+            <div class="content-section">
+                <h3>Supported Poses</h3>
+                <div class="pose-grid">
+                    <div class="pose-card">
+                        <h4>Tree Pose</h4>
+                        <p>Balance on one leg with the other foot placed on your inner thigh or calf.</p>
+                        <ul>
+                            <li>Bent knee: 30-85°</li>
+                            <li>Standing leg: 165-185° (straight)</li>
+                        </ul>
+                    </div>
+                    <div class="pose-card">
+                        <h4>Lunge</h4>
+                        <p>Step forward into a lunge position with one knee bent</p>
+                        <ul>
+                            <li>Front knee: 75-110° (bent at ~90°)</li>
+                            <li>Back leg: 160-185° (straight)</li>
+                        </ul>
+                    </div>
+                    <div class="pose-card">
+                        <h4>Cobra</h4>
+                        <p>Lie face down and lift your chest, arching your back</p>
+                        <ul>
+                            <li>Back arch: 90-145°</li>
+                            <li>Arms: 150-185° (mostly straight)</li>
+                        </ul>
+                    </div>
+                    <div class="pose-card">
+                        <h4>Downward Dog</h4>
+                        <p>Form an inverted V shape with your body</p>
+                        <ul>
+                            <li>Legs: 160-185° (straight)</li>
+                            <li>Hips: 40-110° (bent)</li>
+                            <li>Arms: 140-185° (straight)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h3>Tips for Best Results</h3>
+                <ul class="tips-list">
+                    <li>Ensure good lighting so the camera can detect your body clearly</li>
+                    <li>Stand far enough back so your full body is in frame - it's especially important for your face to be in frame for the model to detect your poses</li>
+                    <li>Hold poses still for at least 1 second to get accurate feedback</li>
+                    <li>Wear clothing that contrasts with your background</li>
+                    <li>Make sure no one else is in the camera's view</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Pose Correction Tab -->
+        <div id="pose-tab" class="tab-content">
+            <div class="video-container">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                <div class="overlay">
+                    <div class="status-bar">
+                        <div id="pose-status" class="pose-status">Initializing...</div>
+                        <div id="confidence" class="confidence"></div>
+                    </div>
+                    <div id="feedback" class="feedback"></div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="start-btn" class="btn btn-primary">Start Camera</button>
+                <button id="stop-btn" class="btn btn-secondary" disabled>Stop Camera</button>
+                <button id="reset-btn" class="btn btn-secondary">Reset</button>
+            </div>
+
+            <div id="angles-panel" class="angles-panel" style="display: none;">
+                <h3>Joint Angles</h3>
+                <div id="angles-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

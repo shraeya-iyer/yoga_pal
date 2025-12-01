@@ -31,7 +31,28 @@ The script requires `yoga_pose_model.pkl` to be in the same directory. This file
 
 If it is not included, run the model training cells in the .ipynb notebook (up to cells 28-29) to generate it.
 
-### 3. Run the Script
+### 3. Run the Application
+
+You can run the application in two ways:
+
+#### Option A: Web Interface (Recommended)
+
+Run the Flask web app:
+
+```bash
+python flask_yoga_app.py
+or
+python3 flask_yoga_app.py
+```
+
+Then open your browser and navigate to:
+```
+http://localhost:5000
+```
+
+#### Option B: Desktop Application
+
+Run the OpenCV-based desktop app:
 
 ```bash
 python realtime_yoga_pose.py 
@@ -111,12 +132,41 @@ MODEL_PATH = 'yoga_pose_model.pkl'  # Path to trained model
 6. **Feedback**: Rule-based system checks angle ranges and provides tips
 7. **Display**: Overlays skeleton, pose name, confidence, and feedback
 
-## Next Steps
+## Web Interface
 
-To create a web interface:
-1. Run `flask_yoga_app.py` (if created) to host on localhost
-2. Access via browser at `http://localhost:5000`
-3. Cleaner UI with better mobile support
+The web interface provides a modern, browser-based experience for yoga pose detection.
+
+### Features
+
+- **Modern UI**: Clean, responsive design with gradient backgrounds
+- **Real-time Processing**: Live webcam feed with instant pose detection
+- **Visual Feedback**: Color-coded feedback (green for good form, red for adjustments)
+- **Joint Angles Display**: Real-time visualization of joint angles
+- **Mobile-Friendly**: Responsive design that works on various screen sizes
+- **Mirror Mode**: Automatically flips the video for intuitive practice
+
+### Usage
+
+1. Start the Flask server: `python flask_yoga_app.py`
+2. Open your browser to `http://localhost:5000`
+3. Click "Start Camera" and allow camera permissions
+4. Position yourself so your full body is visible
+5. Hold a pose for 1 second to receive feedback
+6. View real-time pose classification and feedback
+
+### Web Interface Controls
+
+- **Start Camera**: Begin webcam feed and pose detection
+- **Stop Camera**: Stop the webcam and processing
+- **Reset**: Clear the sliding window buffer and start fresh
+
+### Architecture
+
+The web app uses:
+- **Backend**: Flask server processing frames server-side
+- **Frontend**: HTML5 video API for webcam access
+- **Communication**: RESTful API with JSON responses
+- **Processing**: Same MediaPipe and ML model as desktop version
 
 ---
 

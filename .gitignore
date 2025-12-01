@@ -3,5 +3,6 @@ Activities
 
 # virtual envs
 venv
+.venv
 venv312
 *.csv

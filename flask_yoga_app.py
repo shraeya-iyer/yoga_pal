@@ -1,0 +1,229 @@
+# Flask Web Application to show case our Real-time Yoga Pose Detection, serves web interface for yoga pose estimation and feedback
+
+from flask import Flask, render_template, request, jsonify
+import cv2
+import mediapipe as mp
+import numpy as np
+import joblib
+from collections import deque
+import warnings
+import os
+import sys
+import argparse
+import base64
+from io import BytesIO
+from PIL import Image
+
+# Import functions and constants from azim's script (realtime_yoga_pose.py)
+# suppress exit() calls that happen during import if model file doesn't exist
+try:
+    # temp replace sys.exit to prevent import from killing Flask app because realtime_yoga_pose.py calls exit(1) if model file doesn't exist
+    original_exit = sys.exit
+    
+    def dummy_exit(code=0):
+        """Dummy exit function that does nothing - prevents realtime_yoga_pose from killing Flask"""
+        pass
+    
+    sys.exit = dummy_exit
+    
+    from realtime_yoga_pose import (
+        calculate_angles_from_kp,
+        extract_features_single_frame,
+        reconstruct_angles,
+        get_feedback,
+        feedback_rules
+    )
+    print("Imported functions from realtime_yoga_pose.py")
+
+    from realtime_yoga_pose import (CONFIDENCE_THRESH, WINDOW_SECONDS, MODEL_PATH)
+    print("Imported constants from realtime_yoga_pose.py")
+
+finally:
+    # Restore original sys.exit
+    sys.exit = original_exit
+
+warnings.filterwarnings("ignore")
+
+app = Flask(__name__)
+
+# Load the trained model
+if not os.path.exists(MODEL_PATH):
+    print(f"Error: Model file '{MODEL_PATH}' not found - model should be in same dir as this script")
+    model = None
+else:
+    model = joblib.load(MODEL_PATH)
+    print(f"Model loaded successfully from {MODEL_PATH}")
+
+# Initialize MediaPipe utilities
+mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
+
+# Store sliding windows per client (using session ID)
+client_buffers = {}
+
+
+def create_pose_detector():
+    """Create a new MediaPipe Pose instance for processing a frame.
+    We use static_image_mode=True so each frame is processed independently,
+    and construct a fresh instance per request to avoid timestamp issues."""
+    return mp_pose.Pose(
+        static_image_mode=True,
+        model_complexity=1,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
+
+@app.route('/')
+def index():
+    # Serve the main web interface
+    return render_template('index.html')
+
+
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    #Process a single frame from the webcam
+    if model is None:
+        return jsonify({
+            'error': 'Model not loaded. Please ensure model file exists.'
+        }), 500
+    
+    try:
+        data = request.json
+        image_data = data.get('image')
+        session_id = data.get('session_id', 'default')
+        fps = data.get('fps', 30)
+        
+        # Decode base64 image
+        image_data = image_data.split(',')[1]  # Remove data:image/jpeg;base64, prefix
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(BytesIO(image_bytes))
+        frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        
+        # Initialize buffer for this session if needed
+        if session_id not in client_buffers:
+            buffer_size = int(fps * WINDOW_SECONDS)
+            client_buffers[session_id] = {
+                'feature_buffer': deque(maxlen=buffer_size),
+                'vis_buffer': deque(maxlen=buffer_size)
+            }
+        
+        buffer = client_buffers[session_id]
+        
+        # Initialize response
+        response = {
+            'pose_text': 'Buffering...',
+            'feedback_text': '',
+            'confidence': 0.0,
+            'angles': {},
+            'has_pose': False
+        }
+        
+        # Convert to RGB for MediaPipe and process
+        pose_detector = None
+        try:
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pose_detector = create_pose_detector()
+            results = pose_detector.process(image_rgb)
+        except Exception as mp_error:
+            # Handle MediaPipe errors (like timestamp mismatches) gracefully
+            print(f"MediaPipe processing error: {mp_error}")
+            # Return a response indicating we're waiting for a valid frame
+            response['pose_text'] = 'Waiting...'
+            response['feedback_text'] = 'Processing frame...'
+            return jsonify(response)
+        finally:
+            if pose_detector is not None:
+                try:
+                    pose_detector.close()
+                except Exception:
+                    pass
+
+        if results and results.pose_world_landmarks:
+            # Extract features from current frame
+            raw_vec, angles, vis = extract_features_single_frame(
+                results.pose_world_landmarks.landmark
+            )
+            
+            # Add to sliding window buffers
+            buffer['feature_buffer'].append(raw_vec)
+            buffer['vis_buffer'].append(vis)
+            
+            # Once buffer is full, make predictions
+            if len(buffer['feature_buffer']) == buffer['feature_buffer'].maxlen:
+                # Average features over sliding window for stability
+                avg_vec = np.mean(buffer['feature_buffer'], axis=0)
+                
+                # Predict pose
+                probabilities = model.predict_proba(avg_vec.reshape(1, -1))[0]
+                confidence = float(np.max(probabilities))
+                pred_idx = np.argmax(probabilities)
+                pred_label = model.classes_[pred_idx]
+                
+                # Only show prediction if confidence is high enough
+                if confidence > CONFIDENCE_THRESH:
+                    response['pose_text'] = f"{pred_label}"
+                    response['confidence'] = confidence
+                    response['has_pose'] = True
+                    
+                    # Calculate average visibility
+                    avg_vis = {}
+                    for key in vis:
+                        avg_vis[key] = float(np.mean([v[key] for v in buffer['vis_buffer']]))
+                    
+                    avg_angles_dict = reconstruct_angles(avg_vec)
+                    
+                    # Get pose-specific feedback
+                    feedback_text = get_feedback(pred_label, avg_angles_dict, avg_vis)
+                    response['feedback_text'] = feedback_text
+                    response['angles'] = {k: float(v) for k, v in avg_angles_dict.items()}
+                    response['visibility'] = avg_vis
+                else:
+                    response['pose_text'] = 'Waiting...'
+                    response['feedback_text'] = 'Please hold a pose'
+            else:
+                # Still filling buffer
+                buffer_progress = len(buffer['feature_buffer'])
+                buffer_size = buffer['feature_buffer'].maxlen
+                response['pose_text'] = f'Buffering... ({buffer_progress}/{buffer_size})'
+        
+        return jsonify(response)
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'Error processing frame: {str(e)}'
+        }), 500
+
+
+@app.route('/reset_session', methods=['POST'])
+def reset_session():
+    # Reset the sliding window buffer for a session
+    data = request.json
+    session_id = data.get('session_id', 'default')
+    
+    if session_id in client_buffers:
+        del client_buffers[session_id]
+    
+    return jsonify({'status': 'reset'})
+
+
+if __name__ == '__main__':
+    # Parse command line arguments for port
+    parser = argparse.ArgumentParser(description='Yoga Pose Detection Web App')
+    parser.add_argument('--port', type=int, default=5001,
+                        help='Port to run the Flask server on (default: 5001)') # since on macos port 5000 is usually used by airplay receivers
+    parser.add_argument('--host', type=str, default='0.0.0.0',
+                        help='Host to bind to (default: 0.0.0.0)')
+    args = parser.parse_args()
+    
+    # Also check for PORT environment variable
+    port = int(os.environ.get('PORT', args.port))
+    host = os.environ.get('HOST', args.host)
+    
+    print("Yoga Pose Detection Web App")
+    print("Starting Flask server...")
+    print(f"Access the app at: http://localhost:{port}")
+    print("Press Ctrl+C to stop the server")
+    
+    app.run(debug=True, host=host, port=port)
+
