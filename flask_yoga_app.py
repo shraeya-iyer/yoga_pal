@@ -38,7 +38,14 @@ try:
     )
     print("Imported functions from realtime_yoga_pose.py")
 
-    from realtime_yoga_pose import (CONFIDENCE_THRESH, WINDOW_SECONDS, MODEL_PATH)
+    from config import (
+        CONFIDENCE_THRESH,
+        WINDOW_SECONDS,
+        MODEL_PATH,
+        EMA_ALPHA,
+        MIN_STABLE_SECONDS,
+        BODY_VIS_THRESH,
+    )
     print("Imported constants from realtime_yoga_pose.py")
 
 finally:
@@ -71,10 +78,7 @@ session_state = {}  # {session_id: {active, start_time, end_time, pose_counts, f
 # Each session gets its own instance, avoiding timestamp issues while reducing overhead
 pose_detectors = {}  # {session_id: Pose instance}
 
-# Temporal filtering parameters (tunable)
-EMA_ALPHA = 0.2  # EMA smoothing factor for probabilities
-MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching
-BODY_VIS_THRESH = 0.7  # Minimum visibility for required joints to consider body fully in frame
+# Temporal filtering and visibility thresholds are now provided by config.py
 
 def get_pose_detector(session_id):
     """Get or create a MediaPipe Pose instance for a session.

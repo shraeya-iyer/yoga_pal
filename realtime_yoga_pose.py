@@ -10,18 +10,18 @@ import joblib
 from collections import deque
 import warnings
 import os
+from config import (
+    CONFIDENCE_THRESH,
+    WINDOW_SECONDS,
+    MODEL_PATH,
+    EMA_ALPHA,
+    MIN_STABLE_SECONDS,
+    BODY_VIS_THRESH,
+)
 
 warnings.filterwarnings("ignore")
 
-# Configuration
-CONFIDENCE_THRESH = 0.60
-# CONFIDENCE_THRESH = 0.40 # Way too low
-WINDOW_SECONDS = 1.5  # Sliding window duration
-# MODEL_PATH = 'yoga_pose_model.pkl'
-MODEL_PATH = 'yoga_pose_model0.pkl'
-EMA_ALPHA = 0.2  # Exponential moving average smoothing factor for probabilities (0-1)
-MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching pose
-BODY_VIS_THRESH = 0.7  # Minimum visibility for required joints to consider body fully in frame
+# Configuration moved to config.py
 
 
 

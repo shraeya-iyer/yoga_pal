@@ -117,15 +117,15 @@ Once the script is running:
 
 ## Configuration
 
-You can adjust these parameters at the top of `realtime_yoga_pose.py`:
+You can adjust these parameters in `config.py` (shared by both apps):
 
 ```python
-CONFIDENCE_THRESH = 0.65  # Prediction confidence threshold (0.0-1.0)
-WINDOW_SECONDS = 1        # Sliding window duration in seconds
-MODEL_PATH = 'yoga_pose_model.pkl'  # Path to trained model
-EMA_ALPHA = 0.2           # Temporal EMA smoothing factor for probabilities (higher = smoother)
-MIN_STABLE_SECONDS = 0.6  # Minimum consecutive seconds to commit a new pose label
-BODY_VIS_THRESH = 0.7     # Minimum visibility for key joints to consider body fully in frame
+CONFIDENCE_THRESH = 0.60
+WINDOW_SECONDS = 1.5
+MODEL_PATH = 'yoga_pose_model0.pkl'
+EMA_ALPHA = 0.2
+MIN_STABLE_SECONDS = 0.6
+BODY_VIS_THRESH = 0.7
 ```
 
 ## How It Works
