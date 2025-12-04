@@ -5,6 +5,7 @@ Activities
 venv
 .venv
 venv312
+venv311
 *.csv
 
 
