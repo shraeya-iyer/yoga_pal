@@ -428,3 +428,48 @@ header h1 {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* Session summary */
+.session-summary {
+    background: #FFFEF7;
+    border: 1px solid #E8E8E0;
+    padding: 25px;
+    border-radius: 8px;
+    margin-top: 30px;
+}
+
+.session-summary h3 {
+    margin-bottom: 15px;
+    color: #2C2C2C;
+    font-size: 1.3em;
+    font-weight: 400;
+}
+
+.session-duration {
+    margin-bottom: 15px;
+    color: #4A4A4A;
+}
+
+.session-poses,
+.session-feedback {
+    margin-top: 10px;
+}
+
+.session-poses ul,
+.session-feedback ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.session-poses li,
+.session-feedback li {
+    padding: 6px 0;
+    border-bottom: 1px solid #F0F0F0;
+    color: #4A4A4A;
+}
+
+.session-poses li:last-child,
+.session-feedback li:last-child {
+    border-bottom: none;
+}

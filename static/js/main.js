@@ -10,16 +10,20 @@ let fps = 30;
 let frameCount = 0;
 let lastTime = Date.now();
 let isProcessingFrame = false; // ensure only one in-flight request at a time
+let sessionActive = false;
 
 // DOM elements
-const startBtn = document.getElementById('start-btn');
-const stopBtn = document.getElementById('stop-btn');
-const resetBtn = document.getElementById('reset-btn');
+const startSessionBtn = document.getElementById('start-session-btn');
+const stopSessionBtn = document.getElementById('stop-session-btn');
 const poseStatus = document.getElementById('pose-status');
 const confidenceEl = document.getElementById('confidence');
 const feedbackEl = document.getElementById('feedback');
 const anglesPanel = document.getElementById('angles-panel');
 const anglesContent = document.getElementById('angles-content');
+const sessionSummaryEl = document.getElementById('session-summary');
+const sessionDurationEl = document.getElementById('session-duration');
+const sessionPosesEl = document.getElementById('session-poses');
+const sessionFeedbackEl = document.getElementById('session-feedback');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -31,9 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     
     // Event listeners
-    startBtn.addEventListener('click', startCamera);
-    stopBtn.addEventListener('click', stopCamera);
-    resetBtn.addEventListener('click', resetSession);
+    startSessionBtn.addEventListener('click', startSession);
+    stopSessionBtn.addEventListener('click', stopSession);
     
     // Tab switching
     setupTabs();
@@ -58,8 +61,11 @@ function setupTabs() {
     });
 }
 
-async function startCamera() {
+async function startSession() {
+    if (sessionActive) return;
+    
     try {
+        // Start camera
         const stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 width: { ideal: 1280 },
@@ -77,18 +83,30 @@ async function startCamera() {
             startProcessing();
         });
         
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        poseStatus.textContent = 'Camera started';
+        // Start session tracking on server
+        await fetch('/start_session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId })
+        });
+        
+        sessionActive = true;
+        startSessionBtn.disabled = true;
+        stopSessionBtn.disabled = false;
+        poseStatus.textContent = 'Session started';
+        if (sessionSummaryEl) sessionSummaryEl.style.display = 'none';
         
     } catch (error) {
-        console.error('Error accessing camera:', error);
-        poseStatus.textContent = 'Error: Could not access camera';
+        console.error('Error starting session:', error);
+        poseStatus.textContent = 'Error: Could not start session';
         alert('Could not access camera. Please ensure you have granted camera permissions.');
     }
 }
 
-function stopCamera() {
+async function stopSession() {
+    if (!sessionActive) return;
+    
+    // Stop camera
     if (video.srcObject) {
         const tracks = video.srcObject.getTracks();
         tracks.forEach(track => track.stop());
@@ -101,9 +119,24 @@ function stopCamera() {
     }
     
     isStreaming = false;
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    poseStatus.textContent = 'Camera stopped';
+    
+    // End session and get summary
+    try {
+        const response = await fetch('/end_session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId })
+        });
+        const summary = await response.json();
+        renderSessionSummary(summary);
+    } catch (error) {
+        console.error('Error ending session:', error);
+    }
+    
+    sessionActive = false;
+    startSessionBtn.disabled = false;
+    stopSessionBtn.disabled = true;
+    poseStatus.textContent = 'Session stopped';
     feedbackEl.textContent = '';
     confidenceEl.textContent = '';
     anglesPanel.style.display = 'none';
@@ -125,6 +158,7 @@ function startProcessing() {
     }
     
     // Only start a new capture if no request is currently in-flight
+    // This ensures sequential processing without throttling (which was causing lag)
     if (!isProcessingFrame) {
         captureAndProcess();
     }
@@ -136,14 +170,12 @@ function captureAndProcess() {
     if (isProcessingFrame || !isStreaming) return;
     isProcessingFrame = true;
 
-    // Draw video frame to canvas
-    ctx.save();
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-    ctx.restore();
+    // Draw video frame to canvas (no flip - let CSS handle mirror display)
+    // This ensures MediaPipe processes the same orientation as desktop app
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Convert canvas to base64
-    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    // Convert canvas to base64 - use 0.7 quality for good balance
+    const imageData = canvas.toDataURL('image/jpeg', 0.7);
     
     // Send to server
     fetch('/process_frame', {
@@ -243,28 +275,59 @@ function formatAngleName(key) {
         .replace(/\b\w/g, l => l.toUpperCase());
 }
 
-async function resetSession() {
-    try {
-        await fetch('/reset_session', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                session_id: sessionId
-            })
-        });
-        
-        // Generate new session ID
-        sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        
-        poseStatus.textContent = 'Session reset';
-        feedbackEl.textContent = '';
-        confidenceEl.textContent = '';
-        anglesPanel.style.display = 'none';
-        
-    } catch (error) {
-        console.error('Error resetting session:', error);
+function renderSessionSummary(summary) {
+    if (!summary || !sessionSummaryEl) return;
+
+    const duration = summary.duration_seconds != null ? summary.duration_seconds : null;
+    if (duration != null && sessionDurationEl) {
+        const mins = Math.floor(duration / 60);
+        const secs = Math.round(duration % 60);
+        sessionDurationEl.textContent = `Duration: ${mins}m ${secs}s`;
     }
+
+    if (sessionPosesEl) {
+        const poses = summary.pose_counts || {};
+        const items = Object.entries(poses);
+        if (items.length) {
+            const ul = document.createElement('ul');
+            items.forEach(([pose, count]) => {
+                const li = document.createElement('li');
+                li.textContent = `${pose}: ${count} reps`;
+                ul.appendChild(li);
+            });
+            sessionPosesEl.innerHTML = '<strong>Poses:</strong>';
+            sessionPosesEl.appendChild(ul);
+        } else {
+            sessionPosesEl.textContent = 'No poses recorded.';
+        }
+    }
+
+    if (sessionFeedbackEl) {
+        const fbSummary = summary.feedback_summary || {};
+        const entries = Object.entries(fbSummary);
+        if (entries.length) {
+            const container = document.createElement('div');
+            entries.forEach(([pose, messages]) => {
+                const section = document.createElement('div');
+                const title = document.createElement('div');
+                title.innerHTML = `<strong>${pose} feedback:</strong>`;
+                section.appendChild(title);
+                const ul = document.createElement('ul');
+                messages.forEach(m => {
+                    const li = document.createElement('li');
+                    li.textContent = `${m.message} (${m.count}x)`;
+                    ul.appendChild(li);
+                });
+                section.appendChild(ul);
+                container.appendChild(section);
+            });
+            sessionFeedbackEl.innerHTML = '';
+            sessionFeedbackEl.appendChild(container);
+        } else {
+            sessionFeedbackEl.textContent = 'No corrective feedback recorded.';
+        }
+    }
+
+    sessionSummaryEl.style.display = 'block';
 }
 

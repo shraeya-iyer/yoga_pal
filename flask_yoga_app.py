@@ -1,5 +1,7 @@
 # Flask Web Application to show case our Real-time Yoga Pose Detection, serves web interface for yoga pose estimation and feedback
 
+# only tracks in summary if we hold pose for 3 seconds
+
 from flask import Flask, render_template, request, jsonify
 import cv2
 import mediapipe as mp
@@ -10,6 +12,7 @@ import warnings
 import os
 import sys
 import argparse
+import time
 import base64
 from io import BytesIO
 from PIL import Image
@@ -61,17 +64,24 @@ mp_drawing = mp.solutions.drawing_utils
 # Store sliding windows per client (using session ID)
 client_buffers = {}
 
+# In-memory session tracking per session_id
+session_state = {}  # {session_id: {active, start_time, end_time, pose_counts, feedback_counts, last_pose}}
 
-def create_pose_detector():
-    """Create a new MediaPipe Pose instance for processing a frame.
-    We use static_image_mode=True so each frame is processed independently,
-    and construct a fresh instance per request to avoid timestamp issues."""
-    return mp_pose.Pose(
-        static_image_mode=True,
-        model_complexity=1,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+# Reuse MediaPipe instances per session to improve performance
+# Each session gets its own instance, avoiding timestamp issues while reducing overhead
+pose_detectors = {}  # {session_id: Pose instance}
+
+def get_pose_detector(session_id):
+    """Get or create a MediaPipe Pose instance for a session.
+    Reusing instances per session improves performance while avoiding timestamp issues."""
+    if session_id not in pose_detectors:
+        pose_detectors[session_id] = mp_pose.Pose(
+            static_image_mode=True,
+            model_complexity=1,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    return pose_detectors[session_id]
 
 
 @app.route('/')
@@ -98,7 +108,9 @@ def process_frame():
         image_data = image_data.split(',')[1]  # Remove data:image/jpeg;base64, prefix
         image_bytes = base64.b64decode(image_data)
         image = Image.open(BytesIO(image_bytes))
-        frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        # PIL Image is already RGB, convert directly to numpy array
+        # No need for BGR conversion since browser sends RGB JPEG
+        image_rgb = np.array(image)
         
         # Initialize buffer for this session if needed
         if session_id not in client_buffers:
@@ -119,11 +131,12 @@ def process_frame():
             'has_pose': False
         }
         
-        # Convert to RGB for MediaPipe and process
-        pose_detector = None
+        # Process with MediaPipe (image_rgb is already RGB from PIL)
+        # Note: Desktop app has flip commented out, so we don't flip here either
+        # CSS handles mirror display for user experience
+        # Reuse MediaPipe instance per session for better performance
         try:
-            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pose_detector = create_pose_detector()
+            pose_detector = get_pose_detector(session_id)
             results = pose_detector.process(image_rgb)
         except Exception as mp_error:
             # Handle MediaPipe errors (like timestamp mismatches) gracefully
@@ -132,12 +145,6 @@ def process_frame():
             response['pose_text'] = 'Waiting...'
             response['feedback_text'] = 'Processing frame...'
             return jsonify(response)
-        finally:
-            if pose_detector is not None:
-                try:
-                    pose_detector.close()
-                except Exception:
-                    pass
 
         if results and results.pose_world_landmarks:
             # Extract features from current frame
@@ -178,6 +185,25 @@ def process_frame():
                     response['feedback_text'] = feedback_text
                     response['angles'] = {k: float(v) for k, v in avg_angles_dict.items()}
                     response['visibility'] = avg_vis
+
+                    # Session tracking (optimized - minimal overhead)
+                    # Only count a "rep" when pose changes, not on every frame
+                    if session_id in session_state:
+                        sess = session_state[session_id]
+                        if sess.get("active"):
+                            last_pose = sess.get("last_pose")
+                            # Only increment rep count if pose changed (new rep)
+                            if last_pose != pred_label:
+                                pose_counts = sess["pose_counts"]
+                                pose_counts[pred_label] = pose_counts.get(pred_label, 0) + 1
+                                sess["last_pose"] = pred_label  # Update last pose
+                            
+                            # Track only corrective feedback (can accumulate across frames)
+                            if feedback_text and feedback_text != "Good job!":
+                                feedback_counts = sess["feedback_counts"]
+                                if pred_label not in feedback_counts:
+                                    feedback_counts[pred_label] = {}
+                                feedback_counts[pred_label][feedback_text] = feedback_counts[pred_label].get(feedback_text, 0) + 1
                 else:
                     response['pose_text'] = 'Waiting...'
                     response['feedback_text'] = 'Please hold a pose'
@@ -195,14 +221,90 @@ def process_frame():
         }), 500
 
 
+@app.route('/start_session', methods=['POST'])
+def start_session():
+    """Start a yoga session for a given session_id."""
+    data = request.json or {}
+    sess_id = data.get('session_id', 'default')
+    session_state[sess_id] = {
+        'active': True,
+        'start_time': time.time(),
+        'end_time': None,
+        'pose_counts': {},
+        'feedback_counts': {},
+        'last_pose': None  # Track last detected pose to count reps correctly
+    }
+    # Create MediaPipe instance for this session (will be reused)
+    if sess_id not in pose_detectors:
+        pose_detectors[sess_id] = mp_pose.Pose(
+            static_image_mode=True,
+            model_complexity=1,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/end_session', methods=['POST'])
+def end_session():
+    """End a yoga session and return a summary."""
+    data = request.json or {}
+    sess_id = data.get('session_id', 'default')
+    sess = session_state.get(sess_id)
+    if not sess:
+        return jsonify({'error': 'Session not found'}), 400
+
+    sess['active'] = False
+    if sess.get('end_time') is None:
+        sess['end_time'] = time.time()
+
+    duration = None
+    if sess.get('start_time') is not None and sess.get('end_time') is not None:
+        duration = sess['end_time'] - sess['start_time']
+
+    pose_counts = sess.get('pose_counts', {})
+    feedback_counts = sess.get('feedback_counts', {})
+
+    # Build feedback summary: top messages per pose
+    feedback_summary = {}
+    for pose_name, fb_dict in feedback_counts.items():
+        items = sorted(fb_dict.items(), key=lambda x: x[1], reverse=True)
+        feedback_summary[pose_name] = [
+            {'message': msg, 'count': count} for msg, count in items
+        ]
+
+    # Clean up MediaPipe instance for this session
+    if sess_id in pose_detectors:
+        try:
+            pose_detectors[sess_id].close()
+        except Exception:
+            pass
+        del pose_detectors[sess_id]
+
+    summary = {
+        'duration_seconds': duration,
+        'pose_counts': pose_counts,
+        'feedback_summary': feedback_summary,
+    }
+    return jsonify(summary)
+
+
 @app.route('/reset_session', methods=['POST'])
 def reset_session():
-    # Reset the sliding window buffer for a session
+    # Reset the sliding window buffer and session state for a session
     data = request.json
     session_id = data.get('session_id', 'default')
     
     if session_id in client_buffers:
         del client_buffers[session_id]
+    if session_id in session_state:
+        del session_state[session_id]
+    if session_id in pose_detectors:
+        try:
+            pose_detectors[session_id].close()
+        except Exception:
+            pass
+        del pose_detectors[session_id]
     
     return jsonify({'status': 'reset'})
 

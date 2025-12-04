@@ -49,8 +49,8 @@
                         </ul>
                     </div>
                     <div class="pose-card">
-                        <h4>Lunge</h4>
-                        <p>Step forward into a lunge position with one knee bent</p>
+                        <h4>Warrior Pose</h4>
+                        <p>Step forward into a warrior position with one knee bent and the other straight back and arms held up to shoulder height</p>
                         <ul>
                             <li>Front knee: 75-110° (bent at ~90°)</li>
                             <li>Back leg: 160-185° (straight)</li>
@@ -103,14 +103,20 @@
             </div>
 
             <div class="controls">
-                <button id="start-btn" class="btn btn-primary">Start Camera</button>
-                <button id="stop-btn" class="btn btn-secondary" disabled>Stop Camera</button>
-                <button id="reset-btn" class="btn btn-secondary">Reset</button>
+                <button id="start-session-btn" class="btn btn-primary">Start Session</button>
+                <button id="stop-session-btn" class="btn btn-secondary" disabled>Stop Session</button>
             </div>
 
             <div id="angles-panel" class="angles-panel" style="display: none;">
                 <h3>Joint Angles</h3>
                 <div id="angles-content"></div>
+            </div>
+
+            <div id="session-summary" class="session-summary" style="display: none;">
+                <h3>Session Summary</h3>
+                <div id="session-duration" class="session-duration"></div>
+                <div id="session-poses" class="session-poses"></div>
+                <div id="session-feedback" class="session-feedback"></div>
             </div>
         </div>
     </div>

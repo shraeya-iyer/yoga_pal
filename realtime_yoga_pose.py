@@ -14,11 +14,11 @@ import os
 warnings.filterwarnings("ignore")
 
 # Configuration
-CONFIDENCE_THRESH = 0.65
+CONFIDENCE_THRESH = 0.60
 # CONFIDENCE_THRESH = 0.40 # Way too low
-WINDOW_SECONDS = 1  # Sliding window duration
+WINDOW_SECONDS = 1.5  # Sliding window duration
 # MODEL_PATH = 'yoga_pose_model.pkl'
-MODEL_PATH = 'og_yoga_pose_model.pkl'
+MODEL_PATH = 'yoga_pose_model0.pkl'
 
 
 # Load the trained model
@@ -43,7 +43,7 @@ mp_drawing = mp.solutions.drawing_utils
 feedback_rules = {
     "Lunge": {
         "front_knee": (75, 110, "Bend front knee to 90°"),
-        "back_knee": (160, 185, "Straighten back leg"),
+        "back_knee": (150, 185, "Straighten back leg"),
     },
     "Tree": {
         "bent_knee": (30, 85, "Bend knee more"),
@@ -188,7 +188,7 @@ def get_feedback(pose_name, angles_dict, vis_dict):
         mapping['back'] = ['left_hip_angle', 'right_hip_angle']
         mapping['arms'] = ['left_elbow_angle', 'right_elbow_angle']
 
-    visual_thresh = 0.7
+    visual_thresh = 0.85 # prev 0.7
 
     # Check each rule
     for rule_part, (min_v, max_v, msg) in rules.items():
@@ -290,7 +290,7 @@ def run_realtime_pose_detection():
             frame_count += 1
             
             # Flip frame horizontally for mirror effect (more intuitive)
-            frame = cv2.flip(frame, 1)
+            # frame = cv2.flip(frame, 1)
             
             # Get frame dimensions
             height, width = frame.shape[:2]
