@@ -19,6 +19,8 @@ CONFIDENCE_THRESH = 0.60
 WINDOW_SECONDS = 1.5  # Sliding window duration
 # MODEL_PATH = 'yoga_pose_model.pkl'
 MODEL_PATH = 'yoga_pose_model0.pkl'
+EMA_ALPHA = 0.2  # Exponential moving average smoothing factor for probabilities (0-1)
+MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching pose
 
 
 # Load the trained model
@@ -281,6 +283,13 @@ def run_realtime_pose_detection():
     screenshot_count = 0
 
     try:
+        # Temporal filtering state
+        smoothed_probs = None  # EMA of class probabilities
+        current_label = None
+        stable_candidate = None
+        stable_frames = 0
+        min_stable_frames = max(1, int(fps * MIN_STABLE_SECONDS))
+
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -335,13 +344,42 @@ def run_realtime_pose_detection():
 
                     # Predict pose
                     probabilities = model.predict_proba(avg_vec.reshape(1, -1))[0]
-                    confidence = np.max(probabilities)
-                    pred_idx = np.argmax(probabilities)
+                    # Apply EMA smoothing to probabilities
+                    if smoothed_probs is None:
+                        smoothed_probs = probabilities.copy()
+                    else:
+                        smoothed_probs = EMA_ALPHA * probabilities + (1 - EMA_ALPHA) * smoothed_probs
+
+                    confidence = float(np.max(smoothed_probs))
+                    pred_idx = int(np.argmax(smoothed_probs))
                     pred_label = model.classes_[pred_idx]
 
                     # Only show prediction if confidence is high enough
                     if confidence > CONFIDENCE_THRESH:
-                        pose_text = f"{pred_label} ({int(confidence * 100)}%)"
+                        # Debounce/hysteresis: require consecutive frames before switching
+                        if current_label is None:
+                            current_label = pred_label
+                            stable_candidate = pred_label
+                            stable_frames = 1
+                        else:
+                            if pred_label == current_label:
+                                # already stable on this label
+                                stable_candidate = pred_label
+                                stable_frames = min(stable_frames + 1, min_stable_frames)
+                            else:
+                                # considering switch: count consecutive frames for candidate
+                                if stable_candidate == pred_label:
+                                    stable_frames += 1
+                                else:
+                                    stable_candidate = pred_label
+                                    stable_frames = 1
+
+                                # switch only if we've seen enough consecutive frames
+                                if stable_frames >= min_stable_frames:
+                                    current_label = pred_label
+                                    stable_frames = 0  # reset counter after switch
+
+                        pose_text = f"{current_label} ({int(confidence * 100)}%)"
 
                         # Calculate average visibility
                         for key in vis:
@@ -350,10 +388,11 @@ def run_realtime_pose_detection():
                         avg_angles_dict = reconstruct_angles(avg_vec)
 
                         # Get pose-specific feedback
-                        feedback_text = get_feedback(pred_label, avg_angles_dict, avg_vis)
+                        feedback_text = get_feedback(current_label, avg_angles_dict, avg_vis)
 
                         # Store angles for debug display
                         debug_angles = avg_angles_dict
+                        pred_label = current_label  # for debug keys below
                     else:
                         pose_text = "Waiting..."
                         feedback_text = "Please hold a pose"

@@ -13,6 +13,7 @@ A real-time yoga pose estimation and feedback system using webcam, MediaPipe, an
 - **Live feedback** on pose form with specific corrections
 - **Joint angle visualization** for debugging
 - **Sliding window smoothing** for stable predictions
+- **Temporal filtering** (EMA + debounce) to reduce jitter between pose changes
 - **Mirror mode** for intuitive practice
 
 ## Setup
@@ -111,6 +112,7 @@ Once the script is running:
 ### Slow performance
 - Reduce MediaPipe model complexity: change `model_complexity=1` to `model_complexity=0` (line 30)
 - Reduce window size: `WINDOW_SECONDS = 0.5` (line 17)
+ - Increase EMA smoothing or stability window to trade responsiveness for stability
 
 ## Configuration
 
@@ -120,6 +122,8 @@ You can adjust these parameters at the top of `realtime_yoga_pose.py`:
 CONFIDENCE_THRESH = 0.65  # Prediction confidence threshold (0.0-1.0)
 WINDOW_SECONDS = 1        # Sliding window duration in seconds
 MODEL_PATH = 'yoga_pose_model.pkl'  # Path to trained model
+EMA_ALPHA = 0.2           # Temporal EMA smoothing factor for probabilities (higher = smoother)
+MIN_STABLE_SECONDS = 0.6  # Minimum consecutive seconds to commit a new pose label
 ```
 
 ## How It Works
@@ -129,8 +133,15 @@ MODEL_PATH = 'yoga_pose_model.pkl'  # Path to trained model
 3. **Feature Extraction**: Calculates 8 joint angles from keypoints
 4. **Smoothing**: Averages angles over a 1-second sliding window
 5. **Classification**: Random Forest model predicts pose
-6. **Feedback**: Rule-based system checks angle ranges and provides tips
-7. **Display**: Overlays skeleton, pose name, confidence, and feedback
+6. **Temporal Filtering**: EMA smooths probabilities and a debounce requires stable predictions before switching labels
+7. **Feedback**: Rule-based system checks angle ranges and provides tips
+8. **Display**: Overlays skeleton, pose name, confidence, and feedback
+
+### Tuning Temporal Filtering
+
+- Make pose changes faster: decrease `MIN_STABLE_SECONDS` or decrease `EMA_ALPHA`.
+- Make pose changes steadier: increase `MIN_STABLE_SECONDS` or increase `EMA_ALPHA`.
+- Typical values: `EMA_ALPHA` in `0.15–0.35`, `MIN_STABLE_SECONDS` in `0.4–1.0`.
 
 ## Web Interface
 

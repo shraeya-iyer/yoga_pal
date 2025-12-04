@@ -71,6 +71,10 @@ session_state = {}  # {session_id: {active, start_time, end_time, pose_counts, f
 # Each session gets its own instance, avoiding timestamp issues while reducing overhead
 pose_detectors = {}  # {session_id: Pose instance}
 
+# Temporal filtering parameters (tunable)
+EMA_ALPHA = 0.2  # EMA smoothing factor for probabilities
+MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching
+
 def get_pose_detector(session_id):
     """Get or create a MediaPipe Pose instance for a session.
     Reusing instances per session improves performance while avoiding timestamp issues."""
@@ -117,7 +121,12 @@ def process_frame():
             buffer_size = int(fps * WINDOW_SECONDS)
             client_buffers[session_id] = {
                 'feature_buffer': deque(maxlen=buffer_size),
-                'vis_buffer': deque(maxlen=buffer_size)
+                'vis_buffer': deque(maxlen=buffer_size),
+                'smoothed_probs': None,
+                'current_label': None,
+                'stable_candidate': None,
+                'stable_frames': 0,
+                'min_stable_frames': max(1, int(fps * MIN_STABLE_SECONDS))
             }
         
         buffer = client_buffers[session_id]
@@ -163,13 +172,38 @@ def process_frame():
                 
                 # Predict pose
                 probabilities = model.predict_proba(avg_vec.reshape(1, -1))[0]
-                confidence = float(np.max(probabilities))
-                pred_idx = np.argmax(probabilities)
+                # Apply EMA smoothing to probabilities (per session)
+                if buffer['smoothed_probs'] is None:
+                    buffer['smoothed_probs'] = probabilities.copy()
+                else:
+                    buffer['smoothed_probs'] = EMA_ALPHA * probabilities + (1 - EMA_ALPHA) * buffer['smoothed_probs']
+
+                confidence = float(np.max(buffer['smoothed_probs']))
+                pred_idx = int(np.argmax(buffer['smoothed_probs']))
                 pred_label = model.classes_[pred_idx]
                 
                 # Only show prediction if confidence is high enough
                 if confidence > CONFIDENCE_THRESH:
-                    response['pose_text'] = f"{pred_label}"
+                    # Debounce/hysteresis
+                    if buffer['current_label'] is None:
+                        buffer['current_label'] = pred_label
+                        buffer['stable_candidate'] = pred_label
+                        buffer['stable_frames'] = 1
+                    else:
+                        if pred_label == buffer['current_label']:
+                            buffer['stable_candidate'] = pred_label
+                            buffer['stable_frames'] = min(buffer['stable_frames'] + 1, buffer['min_stable_frames'])
+                        else:
+                            if buffer['stable_candidate'] == pred_label:
+                                buffer['stable_frames'] += 1
+                            else:
+                                buffer['stable_candidate'] = pred_label
+                                buffer['stable_frames'] = 1
+                            if buffer['stable_frames'] >= buffer['min_stable_frames']:
+                                buffer['current_label'] = pred_label
+                                buffer['stable_frames'] = 0
+
+                    response['pose_text'] = f"{buffer['current_label']}"
                     response['confidence'] = confidence
                     response['has_pose'] = True
                     
@@ -181,7 +215,7 @@ def process_frame():
                     avg_angles_dict = reconstruct_angles(avg_vec)
                     
                     # Get pose-specific feedback
-                    feedback_text = get_feedback(pred_label, avg_angles_dict, avg_vis)
+                    feedback_text = get_feedback(buffer['current_label'], avg_angles_dict, avg_vis)
                     response['feedback_text'] = feedback_text
                     response['angles'] = {k: float(v) for k, v in avg_angles_dict.items()}
                     response['visibility'] = avg_vis
