@@ -21,6 +21,8 @@ WINDOW_SECONDS = 1.5  # Sliding window duration
 MODEL_PATH = 'yoga_pose_model0.pkl'
 EMA_ALPHA = 0.2  # Exponential moving average smoothing factor for probabilities (0-1)
 MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching pose
+BODY_VIS_THRESH = 0.7  # Minimum visibility for required joints to consider body fully in frame
+
 
 
 # Load the trained model
@@ -212,6 +214,23 @@ def get_feedback(pose_name, angles_dict, vis_dict):
     return "Good job!"
 
 
+def body_fully_visible(vis_dict, required_keys=None, thresh=BODY_VIS_THRESH):
+    """Return True if the required joints have sufficient visibility."""
+    if not vis_dict:
+        return False
+    if required_keys is None:
+        # Use joints we track visibility for
+        required_keys = [
+            'left_shoulder_angle', 'right_shoulder_angle',
+            'left_hip_angle', 'right_hip_angle',
+            'left_knee_angle', 'right_knee_angle',
+        ]
+    for k in required_keys:
+        if vis_dict.get(k, 0.0) < thresh:
+            return False
+    return True
+
+
 def run_realtime_pose_detection():
     """Main function to run real-time pose detection from webcam"""
     # Open webcam (0 is usually the default camera)
@@ -337,8 +356,16 @@ def run_realtime_pose_detection():
                 feature_buffer.append(raw_vec)
                 vis_buffer.append(vis)
 
+                # Body-in-frame check using current visibility or averaged when available
+                current_vis_ok = body_fully_visible(vis)
+                avg_vis = {}
+                if len(vis_buffer) >= max(1, int(fps * 0.3)):
+                    for key in vis:
+                        avg_vis[key] = np.mean([v[key] for v in vis_buffer])
+                vis_ok = current_vis_ok or (avg_vis and body_fully_visible(avg_vis))
+
                 # Once buffer is full, make predictions
-                if len(feature_buffer) == buffer_size:
+                if len(feature_buffer) == buffer_size and vis_ok:
                     # Average features over sliding window for stability
                     avg_vec = np.mean(feature_buffer, axis=0)
 
@@ -396,6 +423,10 @@ def run_realtime_pose_detection():
                     else:
                         pose_text = "Waiting..."
                         feedback_text = "Please hold a pose"
+                elif len(feature_buffer) == buffer_size and not vis_ok:
+                    # Insufficient body visibility; instruct user
+                    pose_text = "Please put whole body in frame"
+                    feedback_text = "Make sure shoulders, hips, and knees are visible"
                 else:
                     # Still filling buffer
                     pose_text = f"Buffering... ({len(feature_buffer)}/{buffer_size})"

@@ -108,6 +108,7 @@ Once the script is running:
 - Good lighting helps MediaPipe detect landmarks
 - Hold poses still for at least 1 second
 - Adjust `CONFIDENCE_THRESH` in the script (default: 0.65)
+ - If you see "Please put whole body in frame", make sure shoulders, hips, and knees are clearly visible to the camera
 
 ### Slow performance
 - Reduce MediaPipe model complexity: change `model_complexity=1` to `model_complexity=0` (line 30)
@@ -124,6 +125,7 @@ WINDOW_SECONDS = 1        # Sliding window duration in seconds
 MODEL_PATH = 'yoga_pose_model.pkl'  # Path to trained model
 EMA_ALPHA = 0.2           # Temporal EMA smoothing factor for probabilities (higher = smoother)
 MIN_STABLE_SECONDS = 0.6  # Minimum consecutive seconds to commit a new pose label
+BODY_VIS_THRESH = 0.7     # Minimum visibility for key joints to consider body fully in frame
 ```
 
 ## How It Works
@@ -142,6 +144,12 @@ MIN_STABLE_SECONDS = 0.6  # Minimum consecutive seconds to commit a new pose lab
 - Make pose changes faster: decrease `MIN_STABLE_SECONDS` or decrease `EMA_ALPHA`.
 - Make pose changes steadier: increase `MIN_STABLE_SECONDS` or increase `EMA_ALPHA`.
 - Typical values: `EMA_ALPHA` in `0.15–0.35`, `MIN_STABLE_SECONDS` in `0.4–1.0`.
+
+### Body Visibility Threshold
+
+- The app avoids predicting when the body isn’t fully in frame.
+- Tunable: `BODY_VIS_THRESH` (default `0.7`) in both `realtime_yoga_pose.py` and `flask_yoga_app.py`.
+- It checks key joints (shoulders, hips, knees) visibility before predicting.
 
 ## Web Interface
 

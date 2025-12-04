@@ -74,6 +74,7 @@ pose_detectors = {}  # {session_id: Pose instance}
 # Temporal filtering parameters (tunable)
 EMA_ALPHA = 0.2  # EMA smoothing factor for probabilities
 MIN_STABLE_SECONDS = 0.6  # Require this many seconds of consistent predictions before switching
+BODY_VIS_THRESH = 0.7  # Minimum visibility for required joints to consider body fully in frame
 
 def get_pose_detector(session_id):
     """Get or create a MediaPipe Pose instance for a session.
@@ -165,8 +166,30 @@ def process_frame():
             buffer['feature_buffer'].append(raw_vec)
             buffer['vis_buffer'].append(vis)
             
+            # Prepare visibility averages
+            avg_vis = {}
+            if len(buffer['vis_buffer']) >= max(1, int(fps * 0.3)):
+                for key in vis:
+                    avg_vis[key] = float(np.mean([v[key] for v in buffer['vis_buffer']]))
+
+            def body_fully_visible(vis_dict, required_keys=None, thresh=BODY_VIS_THRESH):
+                if not vis_dict:
+                    return False
+                if required_keys is None:
+                    required_keys = [
+                        'left_shoulder_angle', 'right_shoulder_angle',
+                        'left_hip_angle', 'right_hip_angle',
+                        'left_knee_angle', 'right_knee_angle',
+                    ]
+                for k in required_keys:
+                    if vis_dict.get(k, 0.0) < thresh:
+                        return False
+                return True
+
+            vis_ok = body_fully_visible(vis) or (avg_vis and body_fully_visible(avg_vis))
+
             # Once buffer is full, make predictions
-            if len(buffer['feature_buffer']) == buffer['feature_buffer'].maxlen:
+            if len(buffer['feature_buffer']) == buffer['feature_buffer'].maxlen and vis_ok:
                 # Average features over sliding window for stability
                 avg_vec = np.mean(buffer['feature_buffer'], axis=0)
                 
@@ -207,10 +230,7 @@ def process_frame():
                     response['confidence'] = confidence
                     response['has_pose'] = True
                     
-                    # Calculate average visibility
-                    avg_vis = {}
-                    for key in vis:
-                        avg_vis[key] = float(np.mean([v[key] for v in buffer['vis_buffer']]))
+                    # avg_vis already computed above
                     
                     avg_angles_dict = reconstruct_angles(avg_vec)
                     
@@ -241,6 +261,10 @@ def process_frame():
                 else:
                     response['pose_text'] = 'Waiting...'
                     response['feedback_text'] = 'Please hold a pose'
+            elif len(buffer['feature_buffer']) == buffer['feature_buffer'].maxlen and not vis_ok:
+                response['pose_text'] = 'Please put whole body in frame'
+                response['feedback_text'] = 'Ensure shoulders, hips, and knees are visible'
+                response['has_pose'] = False
             else:
                 # Still filling buffer
                 buffer_progress = len(buffer['feature_buffer'])
