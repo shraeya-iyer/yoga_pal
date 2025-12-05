@@ -52,12 +52,12 @@ feedback_rules = {
     },
     "Tree": {
         "bent_knee": (30, 85, "Bend knee more"),
-        "standing_knee": (165, 185, "Straighten standing leg"), # should add arms for tree pose
+        "standing_knee": (150, 185, "Straighten standing leg"), # should add arms for tree pose
     },
     "DownwardDog": {
-        "legs": (160, 185, "Straighten legs"),
+        "legs": (155, 185, "Straighten legs"),
         "back": (40, 110, "Bend hip more"),
-        "arms": (140, 185, "Straighten arms"),
+        "arms": (130, 185, "Straighten arms"),
         "chest": (135, 195, "Tuck chest in more")
     },
     "Cobra": {

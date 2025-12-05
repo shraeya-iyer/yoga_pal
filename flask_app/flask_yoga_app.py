@@ -51,6 +51,7 @@ try:
         EMA_ALPHA,
         MIN_STABLE_SECONDS,
         BODY_VIS_THRESH,
+        POSE_HOLD_SECONDS,
     )
     print("Imported constants from realtime_yoga_pose.py")
 
@@ -90,7 +91,7 @@ ANGLE_TO_LANDMARK = {
 client_buffers = {}
 
 # In-memory session tracking per session_id
-session_state = {}  # {session_id: {active, start_time, end_time, pose_counts, feedback_counts, last_pose}}
+session_state = {}  # {session_id: {active, start_time, end_time, pose_counts, feedback_counts, last_pose, pose_start_time}}
 
 # Reuse MediaPipe instances per session to improve performance
 # Each session gets its own instance, avoiding timestamp issues while reducing overhead
@@ -303,16 +304,38 @@ def process_frame():
                     response['highlight_joints'] = highlight_joints
 
                     # Session tracking (optimized - minimal overhead)
-                    # Only count a "rep" when pose changes, not on every frame
+                    # Only count a "rep" after pose is held for POSE_HOLD_SECONDS at confidence threshold
                     if session_id in session_state:
                         sess = session_state[session_id]
                         if sess.get("active"):
                             last_pose = sess.get("last_pose")
-                            # Only increment rep count if pose changed (new rep)
-                            if last_pose != pred_label:
-                                pose_counts = sess["pose_counts"]
-                                pose_counts[pred_label] = pose_counts.get(pred_label, 0) + 1
-                                sess["last_pose"] = pred_label  # Update last pose
+                            current_time = time.time()
+                            
+                            # Check if pose changed or confidence dropped below threshold
+                            pose_changed = (last_pose is not None and last_pose != pred_label)
+                            confidence_too_low = (confidence < CONFIDENCE_THRESH)
+                            
+                            if pose_changed or confidence_too_low:
+                                # Reset pose tracking if pose changed or confidence too low
+                                sess["pose_start_time"] = None
+                                sess["pose_counted"] = False
+                                sess["last_pose"] = pred_label if not confidence_too_low else None
+                            else:
+                                # Same pose and confidence is good - track hold duration
+                                if sess.get("pose_start_time") is None:
+                                    # Start tracking this pose
+                                    sess["pose_start_time"] = current_time
+                                    sess["last_pose"] = pred_label
+                                    sess["pose_counted"] = False
+                                else:
+                                    # Check if pose has been held long enough
+                                    hold_duration = current_time - sess["pose_start_time"]
+                                    if hold_duration >= POSE_HOLD_SECONDS:
+                                        # Pose held for required duration - increment count once
+                                        if not sess.get("pose_counted", False):
+                                            pose_counts = sess["pose_counts"]
+                                            pose_counts[pred_label] = pose_counts.get(pred_label, 0) + 1
+                                            sess["pose_counted"] = True
                             
                             # Track only corrective feedback (can accumulate across frames)
                             if feedback_text and feedback_text != "Good job!":
@@ -352,7 +375,9 @@ def start_session():
         'end_time': None,
         'pose_counts': {},
         'feedback_counts': {},
-        'last_pose': None  # Track last detected pose to count reps correctly
+        'last_pose': None,  # Track last detected pose to count reps correctly
+        'pose_start_time': None,  # Track when current pose started being held
+        'pose_counted': False  # Track if current pose hold has been counted (reset when pose changes)
     }
     # Create MediaPipe instance for this session (will be reused)
     if sess_id not in pose_detectors:
